@@ -2,6 +2,7 @@ import '../../../../core/models/user_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../student_dashboard/domain/entities/group_entity.dart';
 import '../providers/oral_exam_provider.dart';
+import '../../../../core/utils/oral_exam_validator.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../data/models/exam_question_model.dart';
@@ -675,6 +676,80 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
     );
   }
 
+  Future<void> _submitExamResult() async {
+    // [9E1] Mandatory grading check for all selected questions
+    final questionsError = OralExamValidator.validateAllSelectedQuestionsGraded(questions);
+    if (questionsError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(questionsError), backgroundColor: Colors.red),
+      );
+      _tabController.animateTo(0);
+      return;
+    }
+
+    // [10E1 - 10E4] Final overall score check
+    final currentFinalScore = selectedWholeScore + (selectedDecimalScore / 10.0);
+    final scoreError = OralExamValidator.validateOverallScore(
+      isScoreConfirmed: isScoreConfirmed,
+      score: currentFinalScore,
+      wholeScore: selectedWholeScore,
+      decimalScore: selectedDecimalScore,
+    );
+    if (scoreError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(scoreError), backgroundColor: Colors.red),
+      );
+      _tabController.animateTo(1);
+      return;
+    }
+
+    // [11E1 - 11E3] Review / Feedback check
+    final reviewError = OralExamValidator.validateTeacherReview(_commentController.text);
+    if (reviewError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(reviewError), backgroundColor: Colors.red),
+      );
+      _tabController.animateTo(1);
+      return;
+    }
+
+    final repo = ref.read(groupRepositoryProvider);
+    
+    final stats = _commitStats;
+    final commitData = {
+      'score': double.parse(commitScore.toStringAsFixed(1)),
+      'totalCommits': stats['total'],
+      'passedCommits': stats['passed'],
+    };
+
+    final selectedQuestions = questions.where((q) => q.isSelected).map((q) => {
+      'title': q.title,
+      'category': q.category.toString(),
+      'evaluation': q.evaluation.toString(),
+      'score': q.score,
+    }).toList();
+
+    try {
+      await repo.saveExamResult(
+        groupId: widget.group.id,
+        studentId: widget.student.uid,
+        finalScore: currentFinalScore,
+        suggestedScore: _suggestedScore,
+        commitData: commitData,
+        questions: selectedQuestions,
+        teacherReview: _commentController.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lưu điểm thành công!'), backgroundColor: Colors.green));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   Widget _buildBottomBar() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -695,43 +770,7 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: isScoreConfirmed ? () async {
-                  final repo = ref.read(groupRepositoryProvider);
-                  
-                  final stats = _commitStats;
-                  final commitData = {
-                    'score': double.parse(commitScore.toStringAsFixed(1)),
-                    'totalCommits': stats['total'],
-                    'passedCommits': stats['passed'],
-                  };
-
-                  final selectedQuestions = questions.where((q) => q.isSelected).map((q) => {
-                    'title': q.title,
-                    'category': q.category.toString(),
-                    'evaluation': q.evaluation.toString(),
-                    'score': q.score,
-                  }).toList();
-
-                  try {
-                    await repo.saveExamResult(
-                      groupId: widget.group.id,
-                      studentId: widget.student.uid,
-                      finalScore: selectedWholeScore + (selectedDecimalScore / 10),
-                      suggestedScore: _suggestedScore,
-                      commitData: commitData,
-                      questions: selectedQuestions,
-                      teacherReview: _commentController.text,
-                    );
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lưu điểm thành công!'), backgroundColor: Colors.green));
-                      Navigator.pop(context);
-                    }
-                  } catch (e) {
-                     if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red));
-                     }
-                  }
-                } : null,
+                onPressed: _submitExamResult,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1565C0),
                   foregroundColor: Colors.white,
@@ -1141,12 +1180,42 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
               ],
             ),
             const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: OralExamValidator.quickTags.map((tag) {
+                final isIncluded = _commentController.text.contains(tag);
+                return FilterChip(
+                  label: Text(tag, style: TextStyle(fontSize: 12, color: isIncluded ? Colors.blue.shade900 : Colors.grey.shade800)),
+                  selected: isIncluded,
+                  onSelected: (selected) {
+                    setState(() {
+                      if (selected) {
+                        if (_commentController.text.trim().isEmpty) {
+                          _commentController.text = tag;
+                        } else {
+                          _commentController.text = '${_commentController.text.trim()} $tag';
+                        }
+                      } else {
+                        _commentController.text = _commentController.text.replaceAll(tag, '').replaceAll('  ', ' ').trim();
+                      }
+                    });
+                  },
+                  backgroundColor: Colors.grey.shade100,
+                  selectedColor: Colors.blue.shade100,
+                  checkmarkColor: Colors.blue,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _commentController,
               maxLines: 3,
+              maxLength: 1000,
               decoration: InputDecoration(
                 hintText: 'Ví dụ: Sinh viên nắm vững kiến trúc hệ thống, trình bày rõ ràng, tuy nhiên cần cải thiện phần tối ưu hóa...',
                 hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                counterText: '',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: const BorderSide(color: Colors.blue),
@@ -1207,6 +1276,7 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
                             if (selectedWholeScore == 10) {
                               selectedDecimalScore = 0;
                             }
+                            isScoreConfirmed = false;
                           });
                         }
                       },
@@ -1214,6 +1284,7 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
                         if (selectedWholeScore > 0) {
                           setState(() {
                             selectedWholeScore--;
+                            isScoreConfirmed = false;
                           });
                         }
                       },
@@ -1232,9 +1303,19 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
                       value: selectedDecimalScore,
                       isWhole: false,
                       onUp: () {
+                        if (selectedWholeScore == 10) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Điểm tối đa là 10.0, không thể có số thập phân'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                          return;
+                        }
                         if (selectedWholeScore < 10 && selectedDecimalScore < 9) {
                           setState(() {
                             selectedDecimalScore++;
+                            isScoreConfirmed = false;
                           });
                         }
                       },
@@ -1242,6 +1323,7 @@ class _OralExamScreenState extends ConsumerState<OralExamScreen> with SingleTick
                         if (selectedDecimalScore > 0) {
                           setState(() {
                             selectedDecimalScore--;
+                            isScoreConfirmed = false;
                           });
                         }
                       },
