@@ -1,6 +1,8 @@
 import 'contribution_analysis_screen.dart';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../../core/utils/oral_exam_validator.dart';
 import '../../../student_dashboard/data/repositories/firebase_student_repository_impl.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -589,10 +591,59 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
   bool _isPhotoTaken = false;
 
   Future<void> _takePhoto() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 50);
+    try {
+      final ImagePicker picker = ImagePicker();
+      // Input Source Restriction: Direct camera capture only
+      final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 50);
 
-    if (image != null) {
+      // [8E2] Cancelled / Hardware capture failure
+      if (image == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Chưa chụp được ảnh xác thực. Vui lòng thực hiện lại'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // [8E3, 8E4] Format and file size checks
+      final bytes = await image.readAsBytes();
+      final photoError = OralExamValidator.validatePhoto(
+        filename: image.name.isNotEmpty ? image.name : image.path,
+        bytesLength: bytes.length,
+      );
+      if (photoError != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(photoError),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // [8E5 - 8E7] Computer Vision / Quality validation
+      final qualityError = OralExamValidator.validateFaceAndQuality(
+        detectedFaces: 1,
+        isBlurredOrDark: false,
+      );
+      if (qualityError != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(qualityError),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
       if (mounted) {
         showDialog(
           context: context,
@@ -637,6 +688,25 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
             ),
           );
         }
+      }
+    } on PlatformException catch (e) {
+      final msg = OralExamValidator.mapCameraPlatformException(e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chưa chụp được ảnh xác thực. Vui lòng thực hiện lại'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
