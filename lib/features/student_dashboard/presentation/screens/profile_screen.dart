@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/utils/identity_validator.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -18,6 +19,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   UserModel? _user;
   bool _isLoading = true;
   bool _isSaving = false;
+
+  String? _githubError;
+  String? _googleDocsError;
 
   final TextEditingController _githubController = TextEditingController();
   final TextEditingController _googleDocsController = TextEditingController();
@@ -60,26 +64,113 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _updateProfile() async {
+    setState(() {
+      _githubError = null;
+      _googleDocsError = null;
+    });
+
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSaving = true);
 
     try {
       final uid = _auth.currentUser?.uid;
-      if (uid != null) {
-        await _firestore.collection('users').doc(uid).update({
-          'github_username': _githubController.text.trim(),
-          'google_display_name': _googleDocsController.text.trim(),
-        });
+      if (uid == null) {
+        throw Exception('Người dùng chưa đăng nhập');
+      }
 
+      final githubUsername = _githubController.text.trim();
+      final googleDisplayName = _googleDocsController.text.trim();
+
+      // [16E6] Online GitHub API verification (Async)
+      final ghApiError = await IdentityValidator.verifyGithubUserExists(githubUsername);
+      if (ghApiError != null) {
+        setState(() {
+          _githubError = ghApiError;
+          _isSaving = false;
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cập nhật thông tin thành công!'),
-              backgroundColor: Colors.green,
-            ),
+            SnackBar(content: Text(ghApiError), backgroundColor: Colors.red),
           );
         }
+        return;
+      }
+
+      // [16E7] Uniqueness in Group/Class: Check Firestore if another student claimed this username
+      final isClaimed = await IdentityValidator.isGithubUsernameClaimed(
+        githubUsername,
+        uid,
+        classId: _user?.className,
+        firestore: _firestore,
+      );
+      if (isClaimed) {
+        const errorMsg = "Tài khoản GitHub này đã được sử dụng bởi thành viên khác";
+        setState(() {
+          _githubError = errorMsg;
+          _isSaving = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+          );
+        }
+        return;
+      }
+
+      // [17E] Author revision check (Async): Verify against Google Docs history if group has linked docs
+      final groupQuery = await _firestore
+          .collection('groups')
+          .where('thanh_vien', arrayContains: uid)
+          .limit(1)
+          .get();
+
+      if (groupQuery.docs.isNotEmpty) {
+        final groupData = groupQuery.docs.first.data();
+        final docsStats = groupData['docsStats'] as List<dynamic>?;
+        final docsLink = groupData['link_docs'] as String?;
+
+        if ((docsStats != null && docsStats.isNotEmpty) || (docsLink != null && docsLink.isNotEmpty)) {
+          final authorError = await IdentityValidator.verifyGoogleDocsAuthor(
+            googleDisplayName,
+            docsStats: docsStats,
+            docsLink: docsLink,
+          );
+          if (authorError != null) {
+            setState(() {
+              _googleDocsError = authorError;
+              _isSaving = false;
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(authorError), backgroundColor: Colors.red),
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      // Save to Firestore
+      await _firestore.collection('users').doc(uid).update({
+        'github_username': githubUsername,
+        'google_display_name': googleDisplayName,
+      });
+
+      setState(() {
+        _user = _user?.copyWith(
+          githubUsername: githubUsername,
+          googleDisplayName: googleDisplayName,
+        );
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cập nhật thông tin thành công!'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -201,25 +292,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                           TextFormField(
                             controller: _githubController,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
                             decoration: InputDecoration(
                               labelText: 'GitHub Username',
                               prefixIcon: const Icon(Icons.code),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               hintText: 'Nhập username GitHub của bạn',
+                              errorText: _githubError,
                             ),
-                            validator: (val) => val!.trim().isEmpty ? 'Vui lòng nhập GitHub username' : null,
+                            validator: IdentityValidator.validateGithubUsername,
+                            onChanged: (_) {
+                              if (_githubError != null) {
+                                setState(() => _githubError = null);
+                              }
+                            },
                           ),
                           const SizedBox(height: 20),
 
                           TextFormField(
                             controller: _googleDocsController,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
                             decoration: InputDecoration(
                               labelText: 'Tên hiển thị trên Google Docs',
                               prefixIcon: const Icon(Icons.description_outlined),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               hintText: 'Nhập tên của bạn như hiển thị trong Docs history',
+                              errorText: _googleDocsError,
                             ),
-                            validator: (val) => val!.trim().isEmpty ? 'Vui lòng nhập tên hiển thị Docs' : null,
+                            validator: IdentityValidator.validateGoogleDisplayName,
+                            onChanged: (_) {
+                              if (_googleDocsError != null) {
+                                setState(() => _googleDocsError = null);
+                              }
+                            },
                           ),
                         ],
                       ),

@@ -22,15 +22,27 @@ class ClassController extends AsyncNotifier<List<ClassModel>> {
     return classesData.map((data) => ClassModel.fromMap(data)).toList();
   }
 
-  Future<void> addClass(String name, String subjectCode) async {
+  Future<void> addClass(String name, String subjectCode, {String semester = 'HK1-2025'}) async {
     state = const AsyncValue.loading();
     
     try {
       final repository = ref.read(classRepositoryProvider);
+
+      // [5E1] Uniqueness per Semester per Teacher (Async)
+      final isDuplicate = await repository.isSubjectDuplicate(
+        teacherUid: _teacherUid,
+        subjectName: name,
+        semester: semester,
+      );
+      if (isDuplicate) {
+        throw Exception("Môn học này đã tồn tại trong học kỳ");
+      }
+
       await repository.createClass(
         className: name,
         subjectCode: subjectCode,
         teacherUid: _teacherUid,
+        semester: semester,
       );
       
       // Re-fetch classes after adding
@@ -38,6 +50,7 @@ class ClassController extends AsyncNotifier<List<ClassModel>> {
       state = AsyncValue.data(updatedClasses);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 

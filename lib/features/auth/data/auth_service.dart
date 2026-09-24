@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/utils/auth_validator.dart';
 
 abstract class IAuthService {
   Future<String> loginWithEmail({required String email, required String password});
@@ -100,8 +101,24 @@ class AuthService implements IAuthService {
     String? department,
   }) async {
     try {
+      final trimmedEmail = email.trim();
+
+      // [15E1] Check if studentId is already registered
+      if (role == 'sinh_vien' && studentId != null && studentId.isNotEmpty) {
+        final isTaken = await AuthValidator.isStudentIdRegistered(studentId, firestore: _firebaseFirestore);
+        if (isTaken) {
+          throw Exception('Mã sinh viên đã được đăng ký');
+        }
+      }
+
+      // [13E1] Check if email is already registered in Firestore
+      final isEmailTaken = await AuthValidator.isEmailRegisteredInFirestore(trimmedEmail, firestore: _firebaseFirestore);
+      if (isEmailTaken) {
+        throw Exception('Email này đã được đăng ký tài khoản');
+      }
+
       final UserCredential userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
-        email: email,
+        email: trimmedEmail,
         password: password,
       );
 
@@ -113,14 +130,20 @@ class AuthService implements IAuthService {
 
       await _saveUserDataToFirestore(
         uid: user.uid,
-        email: email,
+        email: trimmedEmail,
         name: name,
         role: role,
         studentId: studentId,
         classId: classId,
         department: department,
       );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        throw Exception('Email này đã được đăng ký tài khoản');
+      }
+      throw Exception(e.message ?? 'Lỗi đăng ký tài khoản: ${e.code}');
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('Lỗi đăng ký: $e');
     }
   }
@@ -136,6 +159,14 @@ class AuthService implements IAuthService {
       final User? user = _firebaseAuth.currentUser;
       if (user == null) throw Exception('Không tìm thấy phiên đăng nhập Microsoft');
 
+      // [15E1] Check if studentId is already registered
+      if (role == 'sinh_vien' && studentId != null && studentId.isNotEmpty) {
+        final isTaken = await AuthValidator.isStudentIdRegistered(studentId, firestore: _firebaseFirestore);
+        if (isTaken) {
+          throw Exception('Mã sinh viên đã được đăng ký');
+        }
+      }
+
       await _saveUserDataToFirestore(
         uid: user.uid,
         email: user.email ?? '',
@@ -146,6 +177,7 @@ class AuthService implements IAuthService {
         department: department,
       );
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('Lỗi khi cập nhật hồ sơ: $e');
     }
   }

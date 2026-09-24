@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../domain/entities/group_entity.dart';
 import '../../domain/entities/member_entity.dart';
 import '../../../../core/widgets/exam_result_bottom_sheet.dart';
+import '../../../../core/utils/group_validator.dart';
 
 class GroupDetailScreen extends StatelessWidget {
   final String classId;
@@ -48,50 +49,96 @@ class GroupDetailScreen extends StatelessWidget {
   }
 
   void _showEditLinksDialog(BuildContext context, GroupEntity group) {
+    final formKey = GlobalKey<FormState>();
     final githubController = TextEditingController(text: group.githubUrl);
     final docsController = TextEditingController(text: group.docsUrl);
+    bool isSaving = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cập nhật Link'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: githubController,
-              decoration: const InputDecoration(labelText: 'GitHub Link'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Cập nhật Link'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: githubController,
+                    validator: GroupValidator.validateGithubUrl,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    decoration: const InputDecoration(
+                      labelText: 'GitHub Link *',
+                      hintText: 'https://github.com/user/repo',
+                      prefixIcon: Icon(Icons.code),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: docsController,
+                    validator: GroupValidator.validateDocsUrl,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    decoration: const InputDecoration(
+                      labelText: 'Google Docs Link *',
+                      hintText: 'https://docs.google.com/document/d/...',
+                      prefixIcon: Icon(Icons.description_outlined),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: docsController,
-              decoration: const InputDecoration(labelText: 'Google Docs Link'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Hủy'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => isSaving = true);
+                      try {
+                        final provider = context.read<GroupManagementProvider>();
+                        await provider.updateGroupLinksWithValidation(
+                          group.id,
+                          classId,
+                          githubController.text.trim(),
+                          docsController.text.trim(),
+                        );
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Đã cập nhật link thành công')),
+                          );
+                          provider.fetchGroups(classId); // Refresh
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSaving = false);
+                        if (context.mounted) {
+                          final msg = e.toString().replaceFirst('Exception: ', '');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Lỗi: $msg'),
+                              backgroundColor: Colors.red.shade700,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Lưu'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Hủy'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                await context.read<GroupManagementProvider>().repository.updateGroupLinks(group.id, githubController.text.trim(), docsController.text.trim());
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật link')));
-                  context.read<GroupManagementProvider>().fetchGroups(classId); // Refresh
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
-                }
-              }
-            },
-            child: const Text('Lưu'),
-          ),
-        ],
       ),
     );
   }

@@ -85,7 +85,7 @@ class SubjectCard extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    _buildTag('HK1-2025', const Color(0xFFE3F2FD), const Color(0xFF1976D2)),
+                    _buildTag(classModel.semester.isNotEmpty ? classModel.semester : 'HK1-2025', const Color(0xFFE3F2FD), const Color(0xFF1976D2)),
                     const SizedBox(width: 8),
                     _buildTag('${classModel.groupCount} NHÓM', const Color(0xFFE0F2F1), const Color(0xFF00796B)),
                   ],

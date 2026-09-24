@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/auth_service.dart';
+import '../../../core/utils/auth_validator.dart';
 
 class RegisterScreen extends StatefulWidget {
   final bool isMicrosoftAccount; 
@@ -31,6 +32,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _selectedRole = 'sinh_vien';
   bool _isLoading = false;
 
+  String? _nameError;
+  String? _emailError;
+  String? _passwordError;
+  String? _studentIdError;
+
   @override
   void initState() {
     super.initState();
@@ -51,16 +57,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _handleRegister() async {
+    setState(() {
+      _nameError = null;
+      _emailError = null;
+      _passwordError = null;
+      _studentIdError = null;
+    });
+
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
+      // Async uniqueness check for Student ID
+      if (_selectedRole == 'sinh_vien') {
+        final idTaken = await AuthValidator.isStudentIdRegistered(_studentIdController.text.trim());
+        if (idTaken) {
+          setState(() {
+            _studentIdError = "Mã sinh viên đã được đăng ký";
+            _isLoading = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Mã sinh viên đã được đăng ký'), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
+      }
+
+      // Async uniqueness check for Email in Firestore
+      if (!widget.isMicrosoftAccount) {
+        final emailTaken = await AuthValidator.isEmailRegisteredInFirestore(_emailController.text.trim());
+        if (emailTaken) {
+          setState(() {
+            _emailError = "Email này đã được đăng ký tài khoản";
+            _isLoading = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Email này đã được đăng ký tài khoản'), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
+      }
+
       if (widget.isMicrosoftAccount) {
         await _authService.saveMicrosoftUserProfile(
           role: _selectedRole,
-          studentId: _selectedRole == 'sinh_vien' ? _studentIdController.text : null,
-          classId: _selectedRole == 'sinh_vien' ? _classController.text : null,
-          department: _selectedRole == 'giang_vien' ? _departmentController.text : null,
+          studentId: _selectedRole == 'sinh_vien' ? _studentIdController.text.trim() : null,
+          classId: _selectedRole == 'sinh_vien' ? _classController.text.trim() : null,
+          department: _selectedRole == 'giang_vien' ? _departmentController.text.trim() : null,
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -72,9 +119,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           password: _passwordController.text,
           name: _nameController.text.trim(),
           role: _selectedRole,
-          studentId: _selectedRole == 'sinh_vien' ? _studentIdController.text : null,
-          classId: _selectedRole == 'sinh_vien' ? _classController.text : null,
-          department: _selectedRole == 'giang_vien' ? _departmentController.text : null,
+          studentId: _selectedRole == 'sinh_vien' ? _studentIdController.text.trim() : null,
+          classId: _selectedRole == 'sinh_vien' ? _classController.text.trim() : null,
+          department: _selectedRole == 'giang_vien' ? _departmentController.text.trim() : null,
         );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -87,9 +134,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
       Navigator.pop(context); 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
-      );
+      final msg = e.toString().replaceAll('Exception: ', '');
+      if (mounted) {
+        setState(() {
+          if (msg.contains('Email này đã được đăng ký')) {
+            _emailError = 'Email này đã được đăng ký tài khoản';
+          }
+          if (msg.contains('Mã sinh viên đã được đăng ký')) {
+            _studentIdError = 'Mã sinh viên đã được đăng ký';
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -136,29 +194,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Họ và tên (VD: Đỗ Đình An)', border: OutlineInputBorder()),
-                validator: (val) => val!.isEmpty ? 'Vui lòng nhập tên' : null,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                decoration: InputDecoration(
+                  labelText: 'Họ và tên (VD: Đỗ Đình An)',
+                  border: const OutlineInputBorder(),
+                  errorText: _nameError,
+                  errorMaxLines: 2,
+                ),
+                validator: AuthValidator.validateFullName,
+                onChanged: (_) {
+                  if (_nameError != null) setState(() => _nameError = null);
+                },
               ),
               const SizedBox(height: 16),
 
               if (!widget.isMicrosoftAccount) ...[
                 TextFormField(
                   controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email trường (@e.tlu.edu.vn)', border: OutlineInputBorder()),
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Vui lòng nhập email';
-                    if (!val.endsWith('@e.tlu.edu.vn') && !val.endsWith('@tlu.edu.vn')) {
-                      return 'Chỉ hỗ trợ email của ĐH Thủy Lợi';
-                    }
-                    return null;
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'Email trường (@e.tlu.edu.vn)',
+                    border: const OutlineInputBorder(),
+                    errorText: _emailError,
+                    errorMaxLines: 2,
+                  ),
+                  validator: AuthValidator.validateEmail,
+                  onChanged: (_) {
+                    if (_emailError != null) setState(() => _emailError = null);
                   },
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _passwordController,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Mật khẩu', border: OutlineInputBorder()),
-                  validator: (val) => val!.length < 6 ? 'Mật khẩu phải từ 6 ký tự' : null,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  decoration: InputDecoration(
+                    labelText: 'Mật khẩu',
+                    border: const OutlineInputBorder(),
+                    errorText: _passwordError,
+                    errorMaxLines: 2,
+                  ),
+                  validator: AuthValidator.validatePassword,
+                  onChanged: (_) {
+                    if (_passwordError != null) setState(() => _passwordError = null);
+                  },
                 ),
                 const SizedBox(height: 16),
               ],
@@ -166,20 +246,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
               if (_selectedRole == 'sinh_vien') ...[
                 TextFormField(
                   controller: _studentIdController,
-                  decoration: const InputDecoration(labelText: 'Mã sinh viên (VD: 2351170568)', border: OutlineInputBorder()),
-                  validator: (val) => val!.isEmpty ? 'Vui lòng nhập MSV' : null,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Mã sinh viên (VD: 2351170568)',
+                    border: const OutlineInputBorder(),
+                    errorText: _studentIdError,
+                    errorMaxLines: 2,
+                  ),
+                  validator: (val) {
+                    if (_selectedRole == 'sinh_vien') {
+                      return AuthValidator.validateStudentId(val);
+                    }
+                    return null;
+                  },
+                  onChanged: (_) {
+                    if (_studentIdError != null) setState(() => _studentIdError = null);
+                  },
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _classController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   decoration: const InputDecoration(labelText: 'Lớp sinh hoạt (VD: KTPM K65)', border: OutlineInputBorder()),
-                  validator: (val) => val!.isEmpty ? 'Vui lòng nhập Lớp' : null,
+                  validator: (val) => val == null || val.trim().isEmpty ? 'Vui lòng nhập Lớp' : null,
                 ),
               ] else ...[
                 TextFormField(
                   controller: _departmentController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                   decoration: const InputDecoration(labelText: 'Khoa / Bộ môn', border: OutlineInputBorder()),
-                  validator: (val) => val!.isEmpty ? 'Vui lòng nhập Khoa' : null,
+                  validator: (val) => val == null || val.trim().isEmpty ? 'Vui lòng nhập Khoa' : null,
                 ),
               ],
               
