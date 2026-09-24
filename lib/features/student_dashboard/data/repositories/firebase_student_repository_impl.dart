@@ -10,6 +10,7 @@ import '../../domain/entities/member_entity.dart';
 import '../models/class_model.dart';
 import '../models/group_model.dart';
 import '../models/notification_model.dart';
+import '../../../../core/utils/group_validator.dart';
 
 class FirebaseStudentRepositoryImpl implements StudentDashboardRepository {
   final FirebaseFirestore _firestore;
@@ -90,7 +91,76 @@ class FirebaseStudentRepositoryImpl implements StudentDashboardRepository {
   }
 
   @override
+  Future<bool> checkGroupNameExists(String classId, String groupName, {String? excludeGroupId}) async {
+    final trimmed = groupName.trim().toLowerCase();
+    final snapshot = await _firestore
+        .collection('groups')
+        .where('ma_lop', isEqualTo: classId)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      if (excludeGroupId != null && doc.id == excludeGroupId) continue;
+      final existingName = (doc.data()['ten_nhom'] as String? ?? '').trim().toLowerCase();
+      if (existingName == trimmed) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> checkGithubUrlExists(String classId, String githubUrl, {String? excludeGroupId}) async {
+    final snapshot = await _firestore
+        .collection('groups')
+        .where('ma_lop', isEqualTo: classId)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      if (excludeGroupId != null && doc.id == excludeGroupId) continue;
+      final existingUrl = doc.data()['link_github'] as String?;
+      if (existingUrl != null && existingUrl.isNotEmpty) {
+        if (GroupValidator.areGithubUrlsEqual(existingUrl, githubUrl)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  @override
+  Future<bool> checkDocsUrlExists(String classId, String docsUrl, {String? excludeGroupId}) async {
+    final snapshot = await _firestore
+        .collection('groups')
+        .where('ma_lop', isEqualTo: classId)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      if (excludeGroupId != null && doc.id == excludeGroupId) continue;
+      final existingUrl = doc.data()['link_docs'] as String?;
+      if (existingUrl != null && existingUrl.isNotEmpty) {
+        if (GroupValidator.areDocsUrlsEqual(existingUrl, docsUrl)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  @override
   Future<GroupModel> createGroup(String classId, String groupName, String? linkGithub, String? linkDocs) async {
+    // [1E1] Uniqueness check for group name
+    if (await checkGroupNameExists(classId, groupName)) {
+      throw GroupValidationException('Tên nhóm đã tồn tại trong lớp học này', field: 'name');
+    }
+    // [2E1] Uniqueness check for GitHub URL
+    if (linkGithub != null && linkGithub.isNotEmpty && await checkGithubUrlExists(classId, linkGithub)) {
+      throw GroupValidationException('Repository GitHub này đã được nộp bởi nhóm khác', field: 'github');
+    }
+    // [3E1] Uniqueness check for Google Docs URL
+    if (linkDocs != null && linkDocs.isNotEmpty && await checkDocsUrlExists(classId, linkDocs)) {
+      throw GroupValidationException('Tài liệu Google Docs này đã được sử dụng bởi nhóm khác', field: 'docs');
+    }
+
     final docRef = await _firestore.collection('groups').add({
       'ma_lop': classId,
       'ten_nhom': groupName,
@@ -109,6 +179,19 @@ class FirebaseStudentRepositoryImpl implements StudentDashboardRepository {
 
   @override
   Future<void> updateGroupLinks(String groupId, String linkGithub, String linkDocs) async {
+    final docSnap = await _firestore.collection('groups').doc(groupId).get();
+    if (docSnap.exists) {
+      final classId = docSnap.data()?['ma_lop'] as String? ?? '';
+      if (classId.isNotEmpty) {
+        if (linkGithub.isNotEmpty && await checkGithubUrlExists(classId, linkGithub, excludeGroupId: groupId)) {
+          throw GroupValidationException('Repository GitHub này đã được nộp bởi nhóm khác', field: 'github');
+        }
+        if (linkDocs.isNotEmpty && await checkDocsUrlExists(classId, linkDocs, excludeGroupId: groupId)) {
+          throw GroupValidationException('Tài liệu Google Docs này đã được sử dụng bởi nhóm khác', field: 'docs');
+        }
+      }
+    }
+
     await _firestore.collection('groups').doc(groupId).update({
       'link_github': linkGithub,
       'link_docs': linkDocs,

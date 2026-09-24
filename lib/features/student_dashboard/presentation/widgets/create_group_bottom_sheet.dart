@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/group_validator.dart';
 import '../providers/group_management_provider.dart';
 import '../screens/group_detail_screen.dart';
 
@@ -13,16 +14,36 @@ class CreateGroupBottomSheet extends StatefulWidget {
 }
 
 class _CreateGroupBottomSheetState extends State<CreateGroupBottomSheet> {
+  final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _githubController = TextEditingController();
   final _docsController = TextEditingController();
+
   bool _isCreating = false;
+  String? _nameError;
+  String? _githubError;
+  String? _docsError;
+  String? _generalError;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _githubController.dispose();
+    _docsController.dispose();
+    super.dispose();
+  }
 
   void _onCreate() async {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập tên nhóm')),
-      );
+    // Clear previous async errors
+    setState(() {
+      _nameError = null;
+      _githubError = null;
+      _docsError = null;
+      _generalError = null;
+    });
+
+    // Run synchronous validations (1E2-1E5, 2E2-2E5, 3E2-3E4)
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
@@ -34,33 +55,56 @@ class _CreateGroupBottomSheetState extends State<CreateGroupBottomSheet> {
       final provider = context.read<GroupManagementProvider>();
       final navigator = Navigator.of(context);
       try {
+        // Run asynchronous checks (1E1, 2E1, 2E6, 3E1, 3E5) and create group
         final newGroup = await provider.createGroup(
-              widget.classId,
-              _nameController.text.trim(),
-              _githubController.text.trim(),
-              _docsController.text.trim(),
-            );
-        
-        // 1. Fetch lại danh sách nhóm và set current group
+          widget.classId,
+          _nameController.text.trim(),
+          _githubController.text.trim(),
+          _docsController.text.trim(),
+        );
+
+        // 1. Fetch updated group list and set current group
         await provider.fetchGroups(widget.classId);
         provider.selectGroup(newGroup);
 
         // 2. Close bottom sheet
-        navigator.pop(); 
+        navigator.pop();
 
-        // 3. Chuyển sang màn hình chi tiết nhóm (thay thế màn hình hiện tại)
+        // 3. Navigate to group detail screen
         navigator.pushReplacement(
           MaterialPageRoute(
             builder: (_) => GroupDetailScreen(classId: widget.classId),
           ),
         );
+      } on GroupValidationException catch (e) {
+        if (mounted) {
+          setState(() {
+            _isCreating = false;
+            _generalError = e.message;
+            if (e.field == 'name') _nameError = e.message;
+            if (e.field == 'github') _githubError = e.message;
+            if (e.field == 'docs') _docsError = e.message;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       } catch (e) {
         if (mounted) {
           setState(() {
             _isCreating = false;
+            _generalError = e.toString().replaceFirst('Exception: ', '');
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lỗi: $e')),
+            SnackBar(
+              content: Text('Lỗi: $_generalError'),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       }
@@ -80,85 +124,147 @@ class _CreateGroupBottomSheetState extends State<CreateGroupBottomSheet> {
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Tạo Nhóm',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Tạo Nhóm',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
+              if (_generalError != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _generalError!,
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              _buildInputLabel('TÊN NHÓM *'),
+              _buildTextFormField(
+                controller: _nameController,
+                hintText: 'Ví dụ: Nhóm 6 - App EduLog',
+                icon: Icons.people_outline,
+                validator: GroupValidator.validateGroupName,
+                errorText: _nameError,
+                onChanged: (_) {
+                  if (_nameError != null) {
+                    setState(() {
+                      _nameError = null;
+                      _generalError = null;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              _buildInputLabel('GITHUB REPOSITORY *'),
+              _buildTextFormField(
+                controller: _githubController,
+                hintText: 'https://github.com/user/repo',
+                icon: Icons.code,
+                validator: GroupValidator.validateGithubUrl,
+                errorText: _githubError,
+                onChanged: (_) {
+                  if (_githubError != null) {
+                    setState(() {
+                      _githubError = null;
+                      _generalError = null;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              _buildInputLabel('GOOGLE DOCS *'),
+              _buildTextFormField(
+                controller: _docsController,
+                hintText: 'https://docs.google.com/document/d/...',
+                icon: Icons.description_outlined,
+                validator: GroupValidator.validateDocsUrl,
+                errorText: _docsError,
+                onChanged: (_) {
+                  if (_docsError != null) {
+                    setState(() {
+                      _docsError = null;
+                      _generalError = null;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isCreating ? null : _onCreate,
+                  icon: _isCreating
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.add),
+                  label: Text(
+                    _isCreating ? 'Đang kiểm tra & tạo nhóm...' : 'Tạo nhóm',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1976D2),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
             ],
           ),
-          const SizedBox(height: 16),
-          _buildInputLabel('TÊN NHÓM *'),
-          _buildTextField(
-            controller: _nameController,
-            hintText: 'Ví dụ: Nhóm 6 – App EduLog',
-            icon: Icons.people_outline,
-          ),
-          const SizedBox(height: 16),
-          _buildInputLabel('GITHUB REPOSITORY'),
-          _buildTextField(
-            controller: _githubController,
-            hintText: 'https://github.com/user/repo',
-            icon: Icons.code,
-          ),
-          const SizedBox(height: 16),
-          _buildInputLabel('GOOGLE DOCS'),
-          _buildTextField(
-            controller: _docsController,
-            hintText: 'https://docs.google.com/...',
-            icon: Icons.description_outlined,
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isCreating ? null : _onCreate,
-              icon: _isCreating 
-                  ? const SizedBox(
-                      width: 20, height: 20, 
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
-                    )
-                  : const Icon(Icons.add),
-              label: Text(
-                _isCreating ? 'Đang tạo...' : 'Tạo nhóm',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1976D2),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
+        ),
       ),
     );
   }
@@ -177,24 +283,44 @@ class _CreateGroupBottomSheetState extends State<CreateGroupBottomSheet> {
     );
   }
 
-  Widget _buildTextField({
+  Widget _buildTextFormField({
     required TextEditingController controller,
     required String hintText,
     required IconData icon,
+    required String? Function(String?)? validator,
+    String? errorText,
+    void Function(String)? onChanged,
   }) {
-    return TextField(
+    return TextFormField(
       controller: controller,
+      validator: validator,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      onChanged: onChanged,
       decoration: InputDecoration(
         hintText: hintText,
         hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
         prefixIcon: Icon(icon, color: Colors.grey.shade500, size: 20),
+        errorText: errorText,
+        errorMaxLines: 3,
         filled: true,
         fillColor: const Color(0xFFF5F7FA),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade400, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
       ),
     );
   }

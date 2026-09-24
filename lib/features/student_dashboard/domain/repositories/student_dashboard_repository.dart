@@ -22,4 +22,7 @@ abstract class StudentDashboardRepository {
   Stream<List<NotificationModel>> getNotificationsStream(String uid);
   Future<void> respondToGroupInvite(String notificationId, String groupId, bool isAccepted);
   Future<String?> uploadImageToImgBB(File imageFile);
+  Future<bool> checkGroupNameExists(String classId, String groupName, {String? excludeGroupId});
+  Future<bool> checkGithubUrlExists(String classId, String githubUrl, {String? excludeGroupId});
+  Future<bool> checkDocsUrlExists(String classId, String docsUrl, {String? excludeGroupId});
 }

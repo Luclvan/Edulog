@@ -5,17 +5,30 @@ import '../../domain/entities/class_entity.dart';
 
 import '../../domain/repositories/student_dashboard_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../core/utils/group_validator.dart';
 
 class GroupManagementProvider extends ChangeNotifier {
   final StudentDashboardRepository repository;
   
-  GroupManagementProvider({required this.repository});
+  final MemberEntity currentUser;
 
-  final MemberEntity currentUser = MemberEntity(
-    id: FirebaseAuth.instance.currentUser?.uid ?? 'unknown',
-    name: 'Sinh viên', // To be fetched if needed
-    studentId: 'N/A',
-  );
+  GroupManagementProvider({
+    required this.repository,
+    MemberEntity? currentUser,
+  }) : currentUser = currentUser ??
+            MemberEntity(
+              id: _safeCurrentUid(),
+              name: 'Sinh viên',
+              studentId: 'N/A',
+            );
+
+  static String _safeCurrentUid() {
+    try {
+      return FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
+    } catch (_) {
+      return 'unknown';
+    }
+  }
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -112,11 +125,95 @@ class GroupManagementProvider extends ChangeNotifier {
 
   Future<GroupEntity> createGroup(String classId, String name, String github, String docs) async {
     _isLoading = true;
+    _errorMessage = null;
     notifyListeners();
     try {
-      final newGroup = await repository.createGroup(classId, name, github.isEmpty ? null : github, docs.isEmpty ? null : docs);
+      final trimmedName = name.trim();
+      final trimmedGithub = github.trim();
+      final trimmedDocs = docs.trim();
+
+      // [1E1] Uniqueness per class check for group name
+      final nameExists = await repository.checkGroupNameExists(classId, trimmedName);
+      if (nameExists) {
+        throw GroupValidationException('Tên nhóm đã tồn tại trong lớp học này', field: 'name');
+      }
+
+      // [2E1] Uniqueness per class check for GitHub URL
+      final githubExists = await repository.checkGithubUrlExists(classId, trimmedGithub);
+      if (githubExists) {
+        throw GroupValidationException('Repository GitHub này đã được nộp bởi nhóm khác', field: 'github');
+      }
+
+      // [2E6] Accessibility check via GitHub API
+      final githubAccessError = await GroupValidator.checkGithubAccessibility(trimmedGithub);
+      if (githubAccessError != null) {
+        throw GroupValidationException(githubAccessError, field: 'github');
+      }
+
+      // [3E1] Uniqueness per class check for Google Docs URL
+      final docsExists = await repository.checkDocsUrlExists(classId, trimmedDocs);
+      if (docsExists) {
+        throw GroupValidationException('Tài liệu Google Docs này đã được sử dụng bởi nhóm khác', field: 'docs');
+      }
+
+      // [3E5] Public access check for Google Docs URL
+      final docsAccessError = await GroupValidator.checkDocsPublicAccess(trimmedDocs);
+      if (docsAccessError != null) {
+        throw GroupValidationException(docsAccessError, field: 'docs');
+      }
+
+      final newGroup = await repository.createGroup(
+        classId,
+        trimmedName,
+        trimmedGithub.isEmpty ? null : trimmedGithub,
+        trimmedDocs.isEmpty ? null : trimmedDocs,
+      );
       // Wait for fetchGroups to update the list, although we just return the new group
       return newGroup;
+    } catch (e) {
+      _errorMessage = e.toString();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateGroupLinksWithValidation(String groupId, String classId, String github, String docs) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final trimmedGithub = github.trim();
+      final trimmedDocs = docs.trim();
+
+      if (trimmedGithub.isNotEmpty) {
+        // [2E1] Uniqueness check for GitHub URL
+        final githubExists = await repository.checkGithubUrlExists(classId, trimmedGithub, excludeGroupId: groupId);
+        if (githubExists) {
+          throw GroupValidationException('Repository GitHub này đã được nộp bởi nhóm khác', field: 'github');
+        }
+        // [2E6] Accessibility check
+        final githubAccessError = await GroupValidator.checkGithubAccessibility(trimmedGithub);
+        if (githubAccessError != null) {
+          throw GroupValidationException(githubAccessError, field: 'github');
+        }
+      }
+
+      if (trimmedDocs.isNotEmpty) {
+        // [3E1] Uniqueness check for Google Docs URL
+        final docsExists = await repository.checkDocsUrlExists(classId, trimmedDocs, excludeGroupId: groupId);
+        if (docsExists) {
+          throw GroupValidationException('Tài liệu Google Docs này đã được sử dụng bởi nhóm khác', field: 'docs');
+        }
+        // [3E5] Public access check
+        final docsAccessError = await GroupValidator.checkDocsPublicAccess(trimmedDocs);
+        if (docsAccessError != null) {
+          throw GroupValidationException(docsAccessError, field: 'docs');
+        }
+      }
+
+      await repository.updateGroupLinks(groupId, trimmedGithub, trimmedDocs);
     } catch (e) {
       _errorMessage = e.toString();
       rethrow;

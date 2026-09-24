@@ -14,6 +14,7 @@ class ClassRepository {
     required String className,
     required String subjectCode,
     required String teacherUid,
+    String semester = 'HK1-2025',
   }) async {
     try {
       final inviteCode = _generateInviteCode(subjectCode);
@@ -21,6 +22,7 @@ class ClassRepository {
         'ten_lop': className,
         'ma_mon': subjectCode,
         'ma_moi': inviteCode,
+        'hoc_ky': semester,
         'giang_vien_id': teacherUid,
         'danh_sach_sinh_vien': [],
         'ngay_tao': FieldValue.serverTimestamp(),
@@ -29,6 +31,37 @@ class ClassRepository {
     } catch (e) {
       debugPrint('Error creating class: $e');
       rethrow;
+    }
+  }
+
+  /// [5E1] Check duplicate subject name for this teacher in the given semester
+  Future<bool> isSubjectDuplicate({
+    required String teacherUid,
+    required String subjectName,
+    required String semester,
+  }) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('classes')
+          .where('giang_vien_id', isEqualTo: teacherUid)
+          .get();
+
+      final cleanName = subjectName.trim().toLowerCase();
+      final cleanSemester = semester.trim().toLowerCase();
+
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final existingName = (data['ten_lop'] as String? ?? '').trim().toLowerCase();
+        final existingSemester = (data['hoc_ky'] as String? ?? data['semester'] as String? ?? '').trim().toLowerCase();
+
+        if (existingName == cleanName && (existingSemester.isEmpty || existingSemester == cleanSemester)) {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error checking duplicate subject: $e');
+      return false;
     }
   }
 

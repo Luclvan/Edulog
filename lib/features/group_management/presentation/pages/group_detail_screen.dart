@@ -628,17 +628,7 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
           );
 
           // Auto navigate to OralExamScreen
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OralExamScreen(
-                student: widget.user,
-                groupName: widget.group.name,
-                group: widget.group,
-              ),
-            ),
-          );
-          ref.invalidate(examResultProvider('${widget.group.id}_${widget.user.uid}'));
+          await _startOralExam();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -649,6 +639,20 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
         }
       }
     }
+  }
+
+  Future<void> _startOralExam() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OralExamScreen(
+          student: widget.user,
+          groupName: widget.group.name,
+          group: widget.group,
+        ),
+      ),
+    );
+    ref.invalidate(examResultProvider('${widget.group.id}_${widget.user.uid}'));
   }
 
   @override
@@ -748,22 +752,17 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: FilledButton.tonalIcon(
-                onPressed: hasResult ? () {
-                  final data = examResultAsync.value as Map<String, dynamic>;
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                    builder: (ctx) => ExamResultBottomSheet(data: data),
-                  );
-                } : null,
-                icon: const Icon(Icons.assessment, size: 18),
+              child: ElevatedButton.icon(
+                onPressed: _startOralExam,
+                icon: const Icon(Icons.quiz_outlined, size: 18),
                 label: const Text(
-                  'Xem kết quả vấn đáp',
+                  'Vấn đáp',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                style: FilledButton.styleFrom(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D47A1),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -772,6 +771,32 @@ class _MemberItemCardState extends ConsumerState<_MemberItemCard> {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonalIcon(
+            onPressed: hasResult ? () {
+              final data = examResultAsync.value as Map<String, dynamic>;
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                builder: (ctx) => ExamResultBottomSheet(data: data),
+              );
+            } : null,
+            icon: const Icon(Icons.assessment, size: 18),
+            label: const Text(
+              'Xem kết quả vấn đáp',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
         ),
       ],
     );
