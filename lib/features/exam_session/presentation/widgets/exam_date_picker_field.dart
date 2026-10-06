@@ -5,6 +5,8 @@ class ExamDatePickerField extends StatelessWidget {
   final String? Function(String?)? validator;
   final void Function(String)? onChanged;
   final Key? fieldKey;
+  final DateTime? firstDate;
+  final DateTime? lastDate;
 
   const ExamDatePickerField({
     super.key,
@@ -12,17 +14,28 @@ class ExamDatePickerField extends StatelessWidget {
     this.validator,
     this.onChanged,
     this.fieldKey,
+    this.firstDate,
+    this.lastDate,
   });
 
   Future<void> _pickDate(BuildContext context) async {
     final now = DateTime.now();
-    final initialDate = DateTime(now.year, now.month, now.day + 1);
+    DateTime initDate = DateTime(now.year, now.month, now.day + 1);
+
+    final fDate = firstDate ?? DateTime(2020);
+    final lDate = lastDate ?? DateTime(2035);
+
+    if (initDate.isBefore(fDate)) {
+      initDate = fDate;
+    } else if (initDate.isAfter(lDate)) {
+      initDate = lDate;
+    }
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
+      initialDate: initDate,
+      firstDate: fDate,
+      lastDate: lDate,
       locale: const Locale('vi', 'VN'),
       helpText: 'CHỌN NGÀY THI',
       confirmText: 'CHỌN',
