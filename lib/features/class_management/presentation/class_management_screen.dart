@@ -5,6 +5,7 @@ import '../../auth/presentation/login_screen.dart';
 import '../domain/class_controller.dart';
 import 'widgets/subject_card.dart';
 import 'widgets/add_subject_bottom_sheet.dart';
+import '../../exam_session/presentation/pages/add_exam_session_screen.dart';
 
 
 class ClassManagementScreen extends ConsumerWidget {
@@ -195,6 +196,74 @@ class ClassManagementScreen extends ConsumerWidget {
               ],
             ),
           ),
+
+          // Exam Session Navigation Banner
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AddExamSessionScreen()),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFA5D6A7)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2E7D32),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.calendar_month, color: Colors.white, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Quản lý ca thi',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1B5E20)),
+                          ),
+                          Text(
+                            'Thêm mới ca thi và phân công giảng viên',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF2E7D32)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const AddExamSessionScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Thêm ca thi'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2E7D32),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
 
           // Subject List
           Expanded(
