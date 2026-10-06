@@ -115,6 +115,12 @@ class ExamSessionRepository {
       endDate: DateTime(2026, 11, 30),
     ),
     ExamTermCatalogItem(
+      name: 'K65_Lich_Thi_HK1_GĐ1_NH_2026-2027',
+      cohort: 'K65',
+      startDate: DateTime(2026, 10, 1),
+      endDate: DateTime(2026, 12, 31),
+    ),
+    ExamTermCatalogItem(
       name: 'K65_Lich_Thi_HK1_GĐ1_NH_2025-2026',
       cohort: 'K65',
       startDate: DateTime(2025, 11, 1),

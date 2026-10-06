@@ -257,7 +257,17 @@ class _AddExamSessionScreenState extends ConsumerState<AddExamSessionScreen> {
                         itemBuilder: (context) => sessionState.examTerms
                             .map((t) => PopupMenuItem(
                                   value: t.name,
-                                  child: Text(t.name, style: const TextStyle(fontSize: 12)),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(t.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                      Text(
+                                        'Hiệu lực: ${t.startDate.day.toString().padLeft(2, '0')}/${t.startDate.month.toString().padLeft(2, '0')}/${t.startDate.year} - ${t.endDate.day.toString().padLeft(2, '0')}/${t.endDate.month.toString().padLeft(2, '0')}/${t.endDate.year}',
+                                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                      ),
+                                    ],
+                                  ),
                                 ))
                             .toList(),
                       ),
@@ -279,7 +289,35 @@ class _AddExamSessionScreenState extends ConsumerState<AddExamSessionScreen> {
                     ),
                   ),
                   validator: ExamSessionValidator.validateExamTermName,
+                  onChanged: (_) => setState(() {}),
                 ),
+                // Hiển thị khoảng thời gian hiệu lực của đợt thi nếu khớp
+                Builder(builder: (context) {
+                  final termName = _examTermController.text.trim();
+                  final matched = sessionState.examTerms.where((t) => t.name.trim() == termName);
+                  if (matched.isEmpty) return const SizedBox.shrink();
+                  final t = matched.first;
+                  return Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFA5D6A7)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.calendar_month, size: 16, color: Color(0xFF2E7D32)),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Hiệu lực: ${t.startDate.day.toString().padLeft(2, '0')}/${t.startDate.month.toString().padLeft(2, '0')}/${t.startDate.year} - ${t.endDate.day.toString().padLeft(2, '0')}/${t.endDate.month.toString().padLeft(2, '0')}/${t.endDate.year}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1B5E20)),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
                 const SizedBox(height: 18),
 
                 // ==================== 2. TÊN MÔN HỌC ====================
@@ -355,14 +393,23 @@ class _AddExamSessionScreenState extends ConsumerState<AddExamSessionScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const SizedBox(height: 6),
-                ExamDatePickerField(
-                  fieldKey: const Key('exam_date_field'),
-                  controller: _examDateController,
-                  validator: (val) => ExamSessionValidator.validateExamDate(
-                    val,
-                    now: widget.mockCurrentDate,
-                  ),
-                ),
+                Builder(builder: (context) {
+                  final termName = _examTermController.text.trim();
+                  final matched = sessionState.examTerms.where((t) => t.name.trim() == termName);
+                  final t = matched.isNotEmpty ? matched.first : null;
+                  return ExamDatePickerField(
+                    fieldKey: const Key('exam_date_field'),
+                    controller: _examDateController,
+                    firstDate: t?.startDate,
+                    lastDate: t?.endDate,
+                    validator: (val) => ExamSessionValidator.validateExamDate(
+                      val,
+                      now: widget.mockCurrentDate,
+                      termStartDate: t?.startDate,
+                      termEndDate: t?.endDate,
+                    ),
+                  );
+                }),
                 const SizedBox(height: 18),
 
                 // ==================== 5. CA THI (TIẾT HỌC) ====================
